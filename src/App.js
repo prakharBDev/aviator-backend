@@ -39,7 +39,7 @@ const App = () => {
       </h1>
       {/* <Plane multiplier={multiplier} /> */}
       <div style={{ marginTop: "50px" }}>
-        <Graph data={data} />
+        <Graph data={data}  multiplier = {multiplier.toFixed(2)}/>
       </div>
       <ControlPanel onStop={handleStop} />
     </div>

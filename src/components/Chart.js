@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import samplePlaneImage from "../plane-image-frame1.png"; // Replace with your actual image path
+import React, { useState, useEffect, useRef } from "react";
 import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -11,7 +10,6 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { motion } from "framer-motion";
 
 // Register Chart.js components
 ChartJS.register(
@@ -24,51 +22,63 @@ ChartJS.register(
   Legend
 );
 
-const Graph = () => {
-  const [planeData, setPlaneData] = useState([1]); // Plane's position on x-axis
-  const [timeData, setTimeData] = useState([0]); // Time elapsed on y-axis
-  const [planePosition, setPlanePosition] = useState(1); // Plane's current position
-  const [timeElapsed, setTimeElapsed] = useState(0); // Time elapsed
-  const [speed, setSpeed] = useState(0.02); // Slower speed for the plane's horizontal movement
-  const [direction, setDirection] = useState(1); // Plane's up/down direction for pendulum motion
-  const [verticalSpeed, setVerticalSpeed] = useState(0.05); // Speed of the vertical movement (slow upward motion)
+const Graph = ({ multiplier }) => {
+  const [planeData, setPlaneData] = useState([0]); // Plane's position on x-axis (starts at 0)
+  const [timeData, setTimeData] = useState([0]); // Plane's vertical position (starts at 0)
+  const [speed] = useState(0.1); // Speed for the plane's horizontal movement
+  const planePosition = useRef(0); // Ref for plane's current position (starts at 0)
+  const animationFrameRef = useRef(null); // For storing the animation frame ID to cancel it later
+  const startTimeRef = useRef(Date.now()); // Ref to store the start time
+  const [initialPendulumPosition, setInitialPendulumPosition] = useState(0); // Store the initial position for pendulum motion
+  const [sineWaveStarted, setSineWaveStarted] = useState(false); // Check if the sine wave has started
+  const [lastVerticalPosition, setLastVerticalPosition] = useState(0); // Store the last vertical position before sine wave starts
+  const [sineWaveStartTime, setSineWaveStartTime] = useState(0); // Store the start time of the sine wave
 
   useEffect(() => {
-    let animationFrameId;
-
     const updatePlanePosition = () => {
-      // Plane moves forward horizontally with slower speed
-      setPlanePosition((prevPosition) => prevPosition + speed);
+      const elapsedTime = Date.now() - startTimeRef.current;
+      // Get the current position of the plane
+      const newPlanePosition = planePosition.current + speed;
 
-      // Vertical motion is constant over time (simulating gradual upward flight)
-      setTimeElapsed((prevTime) => prevTime + verticalSpeed);
-
-      // Update plane's vertical position with a sinusoidal up-and-down motion
-      const newYPosition = Math.sin(planePosition) * 10 + 2; // Simulate small up-and-down motion
-
-      // Update plane data for chart and time data
-      setPlaneData((prevData) => [...prevData, planePosition]);
-      setTimeData((prevTime) => [...prevTime, newYPosition]);
-
-      // Stop animation if plane position reaches a certain limit on the x-axis (keep within bounds)
-      if (planePosition < 15) {
-        animationFrameId = requestAnimationFrame(updatePlanePosition);
+      let newVerticalPosition;
+      if (elapsedTime < 5000) {
+        // Parabolic motion for the vertical position
+        newVerticalPosition = 0.1 * Math.pow(newPlanePosition, 2);
+        setInitialPendulumPosition(newVerticalPosition); // Update the initial pendulum position
+      } else {
+        if (!sineWaveStarted) {
+          // Store the last vertical position before starting the sine wave
+          setLastVerticalPosition(initialPendulumPosition);
+          setSineWaveStarted(true);
+          setSineWaveStartTime(newPlanePosition); // Store the start position of the sine wave
+        }
+        // Pendulum motion for the vertical position, starting from the last parabolic position
+        newVerticalPosition = lastVerticalPosition + 20 * Math.sin((newPlanePosition - sineWaveStartTime) / 2);
       }
+
+      // Update the position reference and chart data
+      planePosition.current = newPlanePosition;
+      setPlaneData((prevData) => [...prevData, newPlanePosition]);
+      setTimeData((prevTime) => [...prevTime, newVerticalPosition]);
+
+      // Continue the animation
+      animationFrameRef.current = requestAnimationFrame(updatePlanePosition);
     };
 
-    // Start the animation
-    animationFrameId = requestAnimationFrame(updatePlanePosition);
+    // Start the animation loop
+    animationFrameRef.current = requestAnimationFrame(updatePlanePosition);
 
     // Cleanup on component unmount
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [planePosition, verticalSpeed, speed]);
+    return () => cancelAnimationFrame(animationFrameRef.current);
+  }, [speed, initialPendulumPosition, sineWaveStarted, lastVerticalPosition, sineWaveStartTime]); // Only trigger when dependencies change
 
+  // Chart.js data
   const chartData = {
     labels: planeData, // Plane's position on the x-axis
     datasets: [
       {
-        label: "Plane Flight",
-        data: timeData, // Time elapsed on the y-axis
+        label: "Parabolic and Pendulum Motion",
+        data: timeData, // Vertical position on the y-axis
         borderColor: "rgba(75, 192, 192, 1)",
         backgroundColor: "rgba(75, 192, 192, 0.2)",
         fill: false,
@@ -79,6 +89,7 @@ const Graph = () => {
     ],
   };
 
+  // Chart.js options
   const options = {
     responsive: true,
     plugins: {
@@ -87,31 +98,23 @@ const Graph = () => {
       },
       title: {
         display: true,
-        text: "Flying Plane Progress",
+        text: "Parabolic and Pendulum Motion Chart",
       },
     },
     scales: {
       x: {
         type: "linear",
-        min: 1,
-        suggestedMax: 15, // Limit plane's progress on the x-axis (to ensure it doesn't go off-screen)
-        grid: {
-          display: false,
-        },
-        ticks: {
-          display: false,
-        },
+        min: 0,
+        suggestedMax: 15, // Limit plane's progress on the x-axis
+        grid: { display: true },
+        ticks: { display: true },
       },
       y: {
         type: "linear",
         min: 0,
-        suggestedMax: 3,
-        grid: {
-          display: false,
-        },
-        ticks: {
-          display: false,
-        },
+        suggestedMax: 25, // Adjust the vertical range to fit the parabolic and pendulum motion
+        grid: { display: true },
+        ticks: { display: true },
       },
     },
     animation: {
@@ -122,20 +125,6 @@ const Graph = () => {
   return (
     <div style={{ position: "relative", height: "400px", width: "100%" }}>
       <Line data={chartData} options={options} />
-      <motion.div
-        style={{
-          position: "absolute",
-          top: `${50 - Math.sin(planePosition) * 10 + timeElapsed * 0.5}px`, // Pendulum-like motion + gradual upward movement
-          left: `${(planePosition / 15) * 100}%`, // Plane moves horizontally within the screen (up to 15)
-          transition: "all 0.1s linear",
-        }}
-      >
-        <img
-          src={samplePlaneImage}
-          alt="Plane"
-          style={{ width: "50px", height: "50px" }}
-        />
-      </motion.div>
     </div>
   );
 };
