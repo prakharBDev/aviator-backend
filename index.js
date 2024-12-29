@@ -1,51 +1,70 @@
 const express = require("express");
 const http = require("http");
-const socketIo = require("socket.io");
 const cors = require("cors");
-
-const app = express();
-const server = http.createServer(app);
-const io = require("socket.io")(server, {
-  cors: {
-    origin: "http://localhost:3001", // Adjust to your frontend URL
-    methods: ["GET", "POST"],
-  },
-});
+const bodyParser = require("body-parser");
+const { socketHandler } = require("./clients/socketClient");
+const redisClient = require("./clients/redisClient");
 
 const PORT = process.env.PORT || 3000;
 
-const generateRandomUserId = () => Math.floor(Math.random() * 10000);
-const generateRandomBet = () => Math.floor(Math.random() * 91) + 10;
-
-const currentBets = {};
-for (let i = 0; i < 10; i++) {
-  currentBets[generateRandomUserId()] = {
-    initialBet: generateRandomBet(),
-  };
-}
-console.log(currentBets);
-app.use(cors());
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
-
-io.on("connection", (socket) => {
-  console.log("New client connected");
-  socket.on("disconnect", () => {
-    console.log("Client disconnected");
+// Gracefully handle shutdown
+const gracefulShutdown = (server) => {
+  console.log("Shutting down gracefully...");
+  server.close(() => {
+    console.log("HTTP server closed.");
+    redisClient.quit(() => {
+      console.log("Redis client disconnected.");
+      process.exit(0);
+    });
   });
-  // Example of emitting an event to the client
-  socket.emit("message", "Welcome to the server!");
-  socket.on("startGame", () => {
-    console.log("Game started");
-    socket.emit("startGame", currentBets);
-  });
-  // Example of listening to an event from the client
-  socket.on("clientEvent", (data) => {
-    console.log("Received data from client:", data);
-  });
-});
 
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    console.error("Forcing shutdown...");
+    process.exit(1);
+  }, 10000);
+};
+
+const startServer = async () => {
+  try {
+    const app = express();
+    // Connecting to redis
+    await redisClient.connect();
+
+    const server = http.createServer(app);
+
+    app.use(cors());
+    app.use(bodyParser.json());
+    app.use("/bets", require("./routes/bets"));
+
+    // starting the socket server
+    socketHandler(server);
+
+    server.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+
+    redisClient.on("error", (err) => {
+      console.error("Could not establish a connection with Redis. Exiting...");
+      console.error(err);
+      process.exit(1);
+    });
+
+    // Ensure gracefulShutdown is passed as a reference, not invoked immediately
+    process.on("SIGTERM", () => gracefulShutdown(server));
+    process.on("SIGINT", () => gracefulShutdown(server));
+  } catch (error) {
+    console.error("Error starting the server:", error);
+    process.exit(1);
+  }
+};
+
+// Connect the client
+(async () => {
+  try {
+    console.log("Starting the Server");
+    startServer();
+  } catch (err) {
+    console.error("Failed to start the server", err);
+  }
+})();
